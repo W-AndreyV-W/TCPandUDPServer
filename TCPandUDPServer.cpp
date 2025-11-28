@@ -5,6 +5,8 @@
 #include "MultiplexingSocket.h"
 #include <iostream>
 
+using namespace std;
+
 int main()
 {
 	MultiplexingSocket MultiplexingSocket;

@@ -29,6 +29,7 @@ MultiplexingSocket::~MultiplexingSocket() {
 	delete incomingDataBuffer;
 	delete poolTimerOff;
 	delete poolAddressClient;
+	delete threadClass;
 }
 
 MultiplexingSocket::internetMessage::internetMessage() {
