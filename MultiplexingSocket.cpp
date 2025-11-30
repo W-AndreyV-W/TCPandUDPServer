@@ -3,13 +3,8 @@
 MultiplexingSocket::MultiplexingSocket() {
 
 	incomingDataBuffer = new std::deque<internetMessage>;
-	incomingMessage = new std::deque<internetMessage>;
-	poolTimerOff = new std::deque<dateVisit>;
 	outgoingDataBuffer = new std::map<int, std::deque<internetMessage>>;
-	poolAddressClient = new std::map<long long, std::deque<addressClient>>;
-	
 	threadClass = new std::deque<std::jthread>;
-	threadClass->push_back(std::jthread(&MultiplexingSocket::threadAddressClient, this));
 }
 
 MultiplexingSocket::~MultiplexingSocket() {
@@ -22,24 +17,19 @@ MultiplexingSocket::~MultiplexingSocket() {
 
 		thrdClss.join();
 	}
-
-	delete threadClass;
-	delete incomingMessage;
+	 
 	delete outgoingDataBuffer;
 	delete incomingDataBuffer;
-	delete poolTimerOff;
-	delete poolAddressClient;
 	delete threadClass;
 }
 
-MultiplexingSocket::internetMessage::internetMessage() {
-
-}
+MultiplexingSocket::internetMessage::internetMessage() {}
 
 MultiplexingSocket::internetMessage::internetMessage(const internetMessage& other) { 
 
 	port = other.port;
 	protocol = other.protocol;
+	conProtocol = other.conProtocol;
 	socket = other.socket;
 	address = other.address;
 	addressSize = other.addressSize;
@@ -50,6 +40,7 @@ MultiplexingSocket::internetMessage::internetMessage(internetMessage&& other) {
 
 	port = other.port;
 	protocol = other.protocol;
+	conProtocol = other.conProtocol;
 	socket = other.socket;
 	address = other.address;
 	addressSize = other.addressSize;
@@ -71,6 +62,7 @@ MultiplexingSocket::internetMessage& MultiplexingSocket::internetMessage::operat
 
 	port = other.port;
 	protocol = other.protocol;
+	conProtocol = other.conProtocol;
 	socket = other.socket;
 	address = other.address;
 	addressSize = other.addressSize;
@@ -84,6 +76,7 @@ MultiplexingSocket::internetMessage& MultiplexingSocket::internetMessage::operat
 
 	port = other.port;
 	protocol = other.protocol;
+	conProtocol = other.conProtocol;
 	socket = other.socket;
 	address = other.address;
 	addressSize = other.addressSize;
@@ -96,6 +89,7 @@ MultiplexingSocket::internetMessage& MultiplexingSocket::internetMessage::operat
 
 	port = other.port;
 	protocol = other.protocol;
+	conProtocol = other.conProtocol;
 	socket = other.socket;
 	address = other.address;
 	addressSize = other.addressSize;
@@ -105,26 +99,6 @@ MultiplexingSocket::internetMessage& MultiplexingSocket::internetMessage::operat
 	other.messageSize = 0;
 
 	return *this;
-}
-
-bool MultiplexingSocket::internetMessage::operator==(internetMessage& other) {
-
-	if (socket != other.socket) {
-
-		return false;
-	}
-	else {
-		
-		for (int i = 2; i < 8; i++) {
-
-			if (address.sa_data[i] != other.address.sa_data[i]) {
-
-				return false;
-			}
-		}
-	}
-
-	return true;
 }
 
 void MultiplexingSocket::internetMessage::setMessage(std::string* mssg) {
@@ -161,19 +135,13 @@ std::string* MultiplexingSocket::internetMessage::getMessage() {
 	}
 	else {
 
-		mssg = new std::string(0);
+		mssg = new std::string;
 	}
 	
 	return mssg;
 }
 
-MultiplexingSocket::addressClient::addressClient(internetMessage& add, std::time_t dateVst) {
-
-	address = internetMessage(add);
-	dateVisit = dateVst;
-}
-
-bool MultiplexingSocket::setPort(int portNumber, ConnectionProtocol protocol, portProtocol portProt, int connections) {
+bool MultiplexingSocket::setPort(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections) {
 
 	if (portProt == TCP) {
 
@@ -197,7 +165,7 @@ bool MultiplexingSocket::setPort(int portNumber, ConnectionProtocol protocol, po
 	return true;
 }
 
-bool MultiplexingSocket::openPortTCP(int portNumber, ConnectionProtocol protocol, portProtocol portProt, int connections) {
+bool MultiplexingSocket::openPortTCP(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections) {
 
 	int listener = 0;
 
@@ -223,7 +191,7 @@ bool MultiplexingSocket::openPortTCP(int portNumber, ConnectionProtocol protocol
 	return true;
 }
 
-bool MultiplexingSocket::openPortUDP(int portNumber, ConnectionProtocol protocol, portProtocol portProt, int connections) {
+bool MultiplexingSocket::openPortUDP(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections) {
 
 	int listener = 0;
 
@@ -249,7 +217,7 @@ bool MultiplexingSocket::openPortUDP(int portNumber, ConnectionProtocol protocol
 	return true;
 }
 
-bool MultiplexingSocket::connectSocket(int portNumber, ConnectionProtocol protocol, portProtocol portProt, int connections, int listener) {
+bool MultiplexingSocket::connectSocket(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections, int listener) {
 
 	fcntl(listener, F_SETFL, O_NONBLOCK);
 	newSocketAddress(portNumber, protocol);
@@ -271,6 +239,7 @@ bool MultiplexingSocket::connectSocket(int portNumber, ConnectionProtocol protoc
 	threadIM.socket = listener;
 	threadIM.port = portNumber;
 	threadIM.protocol = portProt;
+	threadIM.conProtocol = protocol;
 	threadIM.dateMessage = std::time(nullptr);
 	threadInternetMessage.push_back(std::move(threadIM));
 
@@ -292,7 +261,7 @@ bool MultiplexingSocket::connectSocket(int portNumber, ConnectionProtocol protoc
 
 void MultiplexingSocket::deletePort(int portNumber) {
 
-	for (auto const& thrdIM : threadInternetMessage) {
+	for (const auto& thrdIM : threadInternetMessage) {
 
 		if (thrdIM.port == portNumber) {
 
@@ -310,6 +279,21 @@ void MultiplexingSocket::deletePort(int portNumber) {
 	}
 }
 
+void MultiplexingSocket::deleteSocketTCP(int portNumber, int socketNumber) {
+
+	std::unique_lock lock(mutexDeleteSocket);
+
+	if (auto iterDlt = bufferDeletingPort.find(portNumber); iterDlt != bufferDeletingPort.end()) {
+
+		iterDlt->second.push_back(socketNumber);
+	}
+	else {
+
+		bufferDeletingPort.emplace(portNumber, socketNumber);
+	}
+}
+
+
 int MultiplexingSocket::checkingIncomingMessages(bool blockingThread) {
 
 	if (blockingThread) {
@@ -317,8 +301,8 @@ int MultiplexingSocket::checkingIncomingMessages(bool blockingThread) {
 		blockingMessageProcessing();
 	}
 
-	std::unique_lock lock(mutexIncomingMessage);
-	int memberMessanges = static_cast<int>(incomingMessage->size());
+	std::unique_lock lock(mutexIncomingDataBuffer);
+	int memberMessanges = static_cast<int>(incomingDataBuffer->size());
 
 	return memberMessanges;
 }
@@ -326,12 +310,12 @@ int MultiplexingSocket::checkingIncomingMessages(bool blockingThread) {
 MultiplexingSocket::internetMessage MultiplexingSocket::getIncomingMessage() {
 
 	internetMessage mssg;
-	std::unique_lock lock (mutexIncomingMessage);
+	std::unique_lock lock (mutexIncomingDataBuffer);
 
-	if (!incomingMessage->empty()) {
+	if (!incomingDataBuffer->empty()) {
 
-		mssg = std::move(incomingMessage->front());
-		incomingMessage->pop_front();
+		mssg = std::move(incomingDataBuffer->front());
+		incomingDataBuffer->pop_front();
 	}
 
 	return std::move(mssg);
@@ -351,39 +335,7 @@ void MultiplexingSocket::setOutgoingMessage(MultiplexingSocket::internetMessage&
 	}
 }
 
-int MultiplexingSocket::numberClient() {
-
-	int numClnt = 0;
-	std::unique_lock lock(mutexAddressClient);
-	
-	for (const auto& plAddClnt : *poolAddressClient) {
-
-		numClnt += static_cast<int>(plAddClnt.second.size());
-	}
-
-	return numClnt;
-}
-
-void MultiplexingSocket::deleteClient(internetMessage delClient) {
-
-	long long hashAddress = std::hash<std::string_view>{}(delClient.address.sa_data);
-	mutexAddressClient.lock();
-
-	if (auto plAddrssClnt = poolAddressClient->find(hashAddress); plAddrssClnt != poolAddressClient->end()) {
-
-		for (auto plAdd = plAddrssClnt->second.begin(); plAdd != plAddrssClnt->second.end(); ++plAdd) {
-
-			if (plAdd->address == delClient) {
-
-				plAddrssClnt->second.erase(plAdd);
-			}
-		}
-	}
-
-	mutexAddressClient.unlock();
-}
-
-void MultiplexingSocket::newSocketAddress(int portNumber, ConnectionProtocol protocol) {
+void MultiplexingSocket::newSocketAddress(int portNumber, connectionProtocol protocol) {
 
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
@@ -395,7 +347,7 @@ void MultiplexingSocket::newSocketAddress(int portNumber, ConnectionProtocol pro
 	} 
 	else if (protocol == Unix) {
 
-		addr.sin_addr.s_addr = htonl(INADDR_ANY);
+		addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	}
 
 	socketAddress.push_back(*(sockaddr*)&addr);
@@ -494,7 +446,7 @@ void MultiplexingSocket::threadSocketTCP() {
 
 			if (events[i].data.fd == INCOMING_MESSAGE.socket) {
 
-				internetMessage newSM = INCOMING_MESSAGE;
+				internetMessage newSM(INCOMING_MESSAGE);
 				newSM.socket = accept(newSM.socket, &newSM.address, &newSM.addressSize);
 
 				if (newSM.socket == -1) {
@@ -511,7 +463,7 @@ void MultiplexingSocket::threadSocketTCP() {
 					continue;
 				}
 
-				poolThreadSocket->emplace(newSM.socket, std::move(newSM));
+				poolThreadSocket->emplace(newSM.socket, newSM);
 			}
 			else {
 
@@ -634,7 +586,7 @@ void MultiplexingSocket::threadSocketUDP() {
 	int pauseTime = 20;
 	int numberSocket = 0;
 	int socketDescriptor = 0;
-	internetMessage newMssg = INCOMING_MESSAGE;
+	internetMessage newMssg(INCOMING_MESSAGE);
 	char* charBuf = new char[MAX_SIZE_MESSAGE];
 	std::deque<internetMessage>* incomingDataThread = new std::deque<internetMessage>;
 	std::deque<internetMessage>* messageBuffer = new std::deque<internetMessage>;
@@ -800,147 +752,12 @@ void MultiplexingSocket::threadSocketUDP() {
 	delete incomingDataThread;
 }
 
-void MultiplexingSocket::blockingAddressClient() {
-
-	const long long TIMEOUT = 100;
-	std::unique_lock lock(mutexIncomingDataBuffer);
-	messagesThread.wait_for(lock, std::chrono::duration<long long, std::milli>(TIMEOUT));
-}
-
-void MultiplexingSocket::threadAddressClient() {
-
-	bool threadOn = true;
-	double TIMEOUT_ADDRESS = 300;
-	std::deque<internetMessage>* incomingDataThread = new std::deque<internetMessage>;
-
-	while (threadOn) {
-
-		blockingAddressClient();
-		mutexIncomingDataBuffer.lock();
-		
-		if (!incomingDataBuffer->empty()) {
-			
-			while (!incomingDataBuffer->empty()) {
-
-				incomingDataThread->push_back(std::move(incomingDataBuffer->front()));
-				incomingDataBuffer->pop_front();
-			}
-			
-			mutexIncomingDataBuffer.unlock();
-			mutexIncomingMessage.lock();
-			
-			for (auto& iterIncomingData : *incomingDataThread) {
-
-				incomingMessage->push_back(std::move(iterIncomingData));
-			}
-
-			mutexIncomingMessage.unlock();
-			messagesOut.notify_all();
-
-			while (!incomingDataThread->empty()) {
-
-				bool addressSearch = true;
-				long long hashAddress = std::hash<std::string_view>{}(incomingDataThread->front().address.sa_data);
-				mutexAddressClient.lock();
-
-				if (auto plAddrssClnt = poolAddressClient->find(hashAddress); plAddrssClnt != poolAddressClient->end()) {
-
-					for (auto& plAdd : plAddrssClnt->second) {
-
-						if (plAdd.address == incomingDataThread->front()) {
-
-							addressSearch = false;
-							plAdd.dateVisit = incomingDataThread->front().dateMessage;
-						}
-					}
-
-					if (addressSearch) {
-
-						addressSearch = false;
-						plAddrssClnt->second.emplace_back(addressClient(incomingDataThread->front(), incomingDataThread->front().dateMessage));
-						poolTimerOff->emplace_back(dateVisit());
-						poolTimerOff->back().dateVst = incomingDataThread->front().dateMessage;
-						poolTimerOff->back().iterMapAddress = plAddrssClnt;
-						poolTimerOff->back().iterAddress = --plAddrssClnt->second.end();
-					}
-				}
-
-				if (addressSearch) {
-
-					poolAddressClient->emplace(hashAddress, std::deque<addressClient>{addressClient(incomingDataThread->front(), incomingDataThread->front().dateMessage)});
-
-					if (auto plAddClnt = poolAddressClient->find(hashAddress); plAddClnt != poolAddressClient->end()) {
-
-						poolTimerOff->emplace_back(dateVisit());
-						poolTimerOff->back().dateVst = incomingDataThread->front().dateMessage;
-						poolTimerOff->back().iterMapAddress = plAddClnt;
-						poolTimerOff->back().iterAddress = --plAddClnt->second.end();
-					}
-				}
-
-				mutexAddressClient.unlock();
-				incomingDataThread->pop_front();
-			}
-		}
-		else {
-
-			mutexIncomingDataBuffer.unlock();
-			break;
-		}
-	}
-
-	while (!poolTimerOff->empty()) 	{
-
-		if (difftime(std::time(nullptr), poolTimerOff->front().dateVst) > TIMEOUT_ADDRESS) {
-
-			mutexAddressClient.lock();
-
-			for (auto iterTO = poolTimerOff->front().iterMapAddress->second.begin(); iterTO != poolTimerOff->front().iterMapAddress->second.end(); ++iterTO) {
-			
-				if (poolTimerOff->front().iterAddress == iterTO) {
-			
-					if (difftime(std::time(nullptr), iterTO->dateVisit) > TIMEOUT_ADDRESS) {
-
-						if (iterTO->address.protocol == TCP) {
-
-							mutexDeleteSocket.lock();
-
-							if (auto iterDlt = bufferDeletingPort.find(iterTO->address.port); iterDlt != bufferDeletingPort.end()) {
-
-								iterDlt->second.push_back(iterTO->address.socket);
-							}
-							else {
-
-								bufferDeletingPort.emplace(iterTO->address.port, iterTO->address.socket);
-							}
-
-							mutexDeleteSocket.unlock();
-						}
-
-						poolTimerOff->front().iterMapAddress->second.erase(iterTO);
-						break;
-					}
-				}
-			}
-
-			mutexAddressClient.unlock();
-			poolTimerOff->pop_front();
-		}
-		else {
-
-			break;
-		}
-
-		mutexEnd.lock();
-		threadOn = threadOperation;
-		mutexEnd.unlock();
-	}
-
-	delete incomingDataThread;
-}
-
 void MultiplexingSocket::blockingMessageProcessing() {
 
-	std::unique_lock lock(mutexIncomingMessage);
-	messagesOut.wait(lock, [&]() {return !incomingMessage->empty(); });
+	std::unique_lock lock(mutexIncomingDataBuffer);
+
+	if (incomingDataBuffer->empty()) {
+
+		messagesThread.wait(lock, [&]() {return !incomingDataBuffer->empty(); });
+	}
 }

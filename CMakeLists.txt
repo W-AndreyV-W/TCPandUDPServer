@@ -13,9 +13,10 @@ project ("TCPandUDPServer")
 
 # Добавьте источник в исполняемый файл этого проекта.
 add_executable (TCPandUDPServer "TCPandUDPServer.cpp" 
-								"TCPandUDPServer.h" 
 								"MultiplexingSocket.h" 
-								"MultiplexingSocket.cpp")
+								"MultiplexingSocket.cpp"  
+								"MessageProcessing.h" 
+								"MessageProcessing.cpp")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET TCPandUDPServer PROPERTY CXX_STANDARD 20)

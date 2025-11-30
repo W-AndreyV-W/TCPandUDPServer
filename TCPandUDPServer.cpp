@@ -1,17 +1,10 @@
-﻿// TCPandUDPServer.cpp: определяет точку входа для приложения.
-//
+﻿#include "MultiplexingSocket.h"
+#include "MessageProcessing.h"
 
-#include "TCPandUDPServer.h"
-#include "MultiplexingSocket.h"
-#include <iostream>
-
-using namespace std;
-
-int main()
-{
+int main(int argc, char* argv[]) {
+;
 	MultiplexingSocket MultiplexingSocket;
-
-	std::cout << "3 2 1 0" << std::endl;
+	MessageProcessing messageProcessing(&MultiplexingSocket);
 
 	return 0;
 }
