@@ -67,6 +67,7 @@ public:
 		void setMessage(std::string* mssg);
 		void setMessage(std::string mssg);
 		std::string* getMessage();
+		bool operator!=(struct sockaddr& other);
 
 	private:
 
@@ -102,8 +103,20 @@ private:
 	bool openPortUDP(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections);
 	bool connectSocket(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections, int listener);
 	void newSocketAddress(int portNumber, connectionProtocol protocol);
-	void threadSocketTCP();
+	void threadSocketTCP();	 
+	void deleteSocketPortTCP(std::map<int, internetMessage>* plThrdSckt, const internetMessage* incomingMessage, bool* scktOn, int scktDscrptr);
+	void copyingOutgoingMessagesPortTCP(std::map<int, std::deque<internetMessage>>* mssgBffr, const internetMessage* incomingMessage);
+	bool newSocketPoetTCP(std::map<int, internetMessage>* plThrdSckt, epoll_event* evntSckts, const internetMessage* incomingMessage, int scktDscrptr);
+	void receivingMessagePortTCP(std::map<int, internetMessage>* plThrdSckt, std::deque<internetMessage>* incmngDtThrd, epoll_event* evnts, char* chrBf);
+	void saveReceivingMessagePortTCP(std::map<int, internetMessage>::iterator plThrdSckt, std::deque<internetMessage>* incmngDtThrd);
+	void sendingMessagePortTCP(std::map<int, std::deque<internetMessage>>* mssgBffr, epoll_event* evnts, int MaxSizeMessage);
+	void copyingIncomingMessages(std::deque<internetMessage>* incmngDtThrd);
 	void threadSocketUDP();
-
+	void deletePortUDP(const internetMessage* incomingMessage, bool* scktOn);
+	void copyingOutgoingMessagesPortUDP(std::deque<internetMessage>* mssgBffr, const internetMessage* incomingMessage);
+	void receivingMessagePortUDP(internetMessage* nwMssg, const internetMessage* incomingMessage, std::deque<internetMessage>* incmngDtThrd, char* chrBf);
+	void saveReceivingMessagePortUDP(internetMessage* nwMssg, std::deque<internetMessage>* incmngDtThrd);
+	void sendingMessagePortUDP(std::deque<internetMessage>* mssgBffr, int MaxSizeMessage);
 	void blockingMessageProcessing();
+	bool endThread();
 };

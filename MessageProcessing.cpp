@@ -6,7 +6,7 @@ MessageProcessing::MessageProcessing(MultiplexingSocket* multiplexSocket) {
 
 	incomingClients = new std::deque<MultiplexingSocket::internetMessage>;
 	poolTimerOff = new std::deque<dateVisit>;
-	poolAddressClient = new std::map<long long, std::deque<addressClient>>;
+	poolAddressClient = new std::map<long long, std::list<addressClient>>;
 
 	startProcessing();
 
@@ -80,8 +80,8 @@ bool MessageProcessing::addressClient::operator==(addressClient& other) {
 	return true;
 }
 
-MessageProcessing::dateVisit::dateVisit(std::time_t dtVst, std::map<long long, std::deque<addressClient>>::iterator itrMpAdd, 
-										std::deque<addressClient>::iterator itrAddr) {
+MessageProcessing::dateVisit::dateVisit(std::time_t dtVst, std::map<long long, std::list<addressClient>>::iterator itrMpAdd, 
+										std::list<addressClient>::iterator itrAddr) {
 
 	dateVst = dtVst;
 	iterMapAddress = itrMpAdd;
@@ -134,27 +134,19 @@ void MessageProcessing::threadProcessing() {
 		multiplexingSocket->checkingIncomingMessages(true);
 		MultiplexingSocket::internetMessage intrntMsag = std::move(multiplexingSocket->getIncomingMessage());
 		std::string* intMes = intrntMsag.getMessage();
-		mutexAddressClient.lock();
-		incomingClients->push_back(intrntMsag);
-		mutexAddressClient.unlock();
-		messagesAddress.notify_all();
+		addingClient(&intrntMsag);
 
 		if (intMes->at(0) == '/') {
 
 			if (intMes->find_first_of("/time") != std::string::npos) {
 
-				char timeString[20];
-				std::time_t timeServer = std::time(nullptr);
-				std::strftime(std::data(timeString), std::size(timeString), "%F %T", std::gmtime(&timeServer));
-				intMes->clear();
-				*intMes = std::string(timeString);
+				preparingDate(intMes);
 				intrntMsag.setMessage(intMes);
 				multiplexingSocket->setOutgoingMessage(intrntMsag);
 			}
 			else if (intMes->find_first_of("/stats") != std::string::npos) {
 
-				intMes->clear();
-				*intMes = std::to_string(numberClient());
+				preparationNumberClients(intMes);
 				intrntMsag.setMessage(intMes);
 				multiplexingSocket->setOutgoingMessage(intrntMsag);
 			}
@@ -183,6 +175,29 @@ void MessageProcessing::threadProcessing() {
 	}
 }
 
+void MessageProcessing::addingClient(MultiplexingSocket::internetMessage* intrntMsag) {
+
+	mutexAddressClient.lock();
+	incomingClients->push_back(*intrntMsag);
+	mutexAddressClient.unlock();
+	messagesAddress.notify_all();
+}
+
+void MessageProcessing::preparingDate(std::string* intMes) {
+
+	char timeString[20];
+	std::time_t timeServer = std::time(nullptr);
+	std::strftime(std::data(timeString), std::size(timeString), "%F %T", std::gmtime(&timeServer));
+	intMes->clear();
+	*intMes = std::string(timeString);
+}
+
+void MessageProcessing::preparationNumberClients(std::string* intMes) {
+
+	intMes->clear();
+	*intMes = std::to_string(numberClient());
+}
+
 void MessageProcessing::blockingAddressClient() {
 
 	const long long TIMEOUT = 100;
@@ -199,100 +214,138 @@ void MessageProcessing::threadAddressClient() {
 	while (threadOn) {
 
 		blockingAddressClient();
-		mutexAddressClient.lock();
-
-		if (!incomingClients->empty()) {
-
-			while (!incomingClients->empty()) {
-
-				incmngClnts->push_back(incomingClients->front());
-				incomingClients->pop_front();
-			}
-
-			mutexAddressClient.unlock();
-
-			while (!incmngClnts->empty()) {
-
-				bool addressSearch = true;
-				long long hashAddress = std::hash<std::string_view>{}(incmngClnts->front().address.sa_data);
-				mutexAddressClient.lock();
-
-				if (auto plAddrssClnt = poolAddressClient->find(hashAddress); plAddrssClnt != poolAddressClient->end()) {
-
-					for (auto& plAdd : plAddrssClnt->second) {
-
-						if (plAdd == incmngClnts->front()) {
-
-							addressSearch = false;
-							plAdd.dateVisit = incmngClnts->front().dateMessage;
-						}
-					}
-
-					if (addressSearch) {
-
-						addressSearch = false;
-						plAddrssClnt->second.emplace_back(addressClient(incmngClnts->front()));
-						poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddrssClnt, --plAddrssClnt->second.end()));
-					}
-				}
-
-				if (addressSearch) {
-
-					poolAddressClient->emplace(hashAddress, std::deque<addressClient>{incmngClnts->front()});
-
-					if (auto plAddClnt = poolAddressClient->find(hashAddress); plAddClnt != poolAddressClient->end()) {
-
-						poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddClnt, --plAddClnt->second.end()));
-					}
-				}
-
-				mutexAddressClient.unlock();
-				incmngClnts->pop_front();
-			}
-		}
-		else {
-
-			mutexAddressClient.unlock();
-		}
-
-		while (!poolTimerOff->empty()) {
-
-			if (difftime(std::time(nullptr), poolTimerOff->front().dateVst) > TIMEOUT_ADDRESS) {
-
-				mutexAddressClient.lock();
-
-				for (auto iterTO = poolTimerOff->front().iterMapAddress->second.begin(); iterTO != poolTimerOff->front().iterMapAddress->second.end(); ++iterTO) {
-
-					if (poolTimerOff->front().iterAddress == iterTO) {
-
-						if (difftime(std::time(nullptr), iterTO->dateVisit) > TIMEOUT_ADDRESS) {
-
-							if (iterTO->protocol == TCP) {
-		
-								multiplexingSocket->deleteSocketTCP(iterTO->port, iterTO->socket);
-							}
-
-							poolTimerOff->front().iterMapAddress->second.erase(iterTO);
-							break;
-						}
-					}
-				}
-
-				mutexAddressClient.unlock();
-				poolTimerOff->pop_front();
-			}
-			else {
-
-				break;
-			}
-		}
-
-		mutexEnd.lock();
-		threadOn = threadOperation;
-		mutexEnd.unlock();
+		addingClientAddress(incmngClnts);
+		deletingClientsTime(TIMEOUT_ADDRESS);
+		threadOn = endThread();
 	}
 
 	delete incmngClnts;
+}
+
+void MessageProcessing::addingClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+
+	mutexAddressClient.lock();
+
+	if (!incomingClients->empty()) {
+
+		while (!incomingClients->empty()) {
+
+			incmngClnts->push_back(incomingClients->front());
+			incomingClients->pop_front();
+		}
+
+		mutexAddressClient.unlock();
+		searchClientAddress(incmngClnts);
+	}
+	else {
+
+		mutexAddressClient.unlock();
+	}
+}
+
+void MessageProcessing::searchClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+
+	while (!incmngClnts->empty()) {
+
+		bool addressSearch = true;
+		long long hashAddress = std::hash<std::string_view>{}(incmngClnts->front().address.sa_data);
+		mutexAddressClient.lock();
+
+		if (auto plAddrssClnt = poolAddressClient->find(hashAddress); plAddrssClnt != poolAddressClient->end()) {
+
+			for (auto& plAdd : plAddrssClnt->second) {
+
+				if (plAdd == incmngClnts->front()) {
+
+					addressSearch = false;
+					updatingVisitTime(incmngClnts, &plAdd);
+				}
+			}
+
+			if (addressSearch) {
+
+				addressSearch = false;
+				addingClient(plAddrssClnt, incmngClnts);
+			}
+		}
+
+		if (addressSearch) {
+
+			addingNewClientAddress(incmngClnts, hashAddress);
+		}
+
+		mutexAddressClient.unlock();
+		incmngClnts->pop_front();
+	}
+}
+
+void MessageProcessing::updatingVisitTime(std::deque<MultiplexingSocket::internetMessage>* incmngClnts, addressClient* plAdd) {
+
+	plAdd->dateVisit = incmngClnts->front().dateMessage;
+}
+
+void MessageProcessing::addingClient(std::map<long long, std::list<addressClient>>::iterator& plAddrssClnt, std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+
+	plAddrssClnt->second.emplace_back(addressClient(incmngClnts->front()));
+	poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddrssClnt, --plAddrssClnt->second.end()));
+}
+
+void MessageProcessing::addingNewClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts, long long hashAddress) {
+
+	poolAddressClient->emplace(hashAddress, std::list<addressClient>{incmngClnts->front()});
+
+	if (auto plAddClnt = poolAddressClient->find(hashAddress); plAddClnt != poolAddressClient->end()) {
+
+		poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddClnt, plAddClnt->second.begin()));
+	}
+}
+
+void MessageProcessing::deletingClientsTime(double timeoutAddress) {
+
+	while (!poolTimerOff->empty()) {
+
+		if (difftime(std::time(nullptr), poolTimerOff->front().dateVst) > timeoutAddress) {
+
+			checkingTimeLastSession(timeoutAddress);
+			poolTimerOff->pop_front();
+		}
+		else {
+
+			break;
+		}
+	}
+}
+
+void MessageProcessing::checkingTimeLastSession(double timeoutAddress) {
+	
+	mutexAddressClient.lock();
+	
+	if (!poolTimerOff->front().iterMapAddress->second.empty()) {
+
+		for (auto iterTO = poolTimerOff->front().iterMapAddress->second.begin(); iterTO != poolTimerOff->front().iterMapAddress->second.end(); ++iterTO) {
+
+			if (poolTimerOff->front().iterAddress == iterTO) {
+
+				if (difftime(std::time(nullptr), iterTO->dateVisit) > timeoutAddress) {
+
+					deleteAddress(iterTO);
+					break;
+				}
+			}
+		}
+	}
+
+	mutexAddressClient.unlock();
+}
+
+void MessageProcessing::deleteAddress(std::list<addressClient>::iterator& iterTO) {
+	
+	if (iterTO->protocol == TCP) {
+
+		multiplexingSocket->deleteSocketTCP(iterTO->port, iterTO->socket);
+	}
+
+	poolTimerOff->front().iterMapAddress->second.erase(iterTO);
 }
 
 void MessageProcessing::startProcessing() {
@@ -310,4 +363,14 @@ void MessageProcessing::startProcessing() {
 		threadOn = threadOperation;
 		mutexEnd.unlock();
 	}
+}
+
+bool MessageProcessing::endThread() {
+
+	bool endThrd = true;
+	mutexEnd.lock();
+	endThrd = threadOperation;
+	mutexEnd.unlock();
+
+	return endThrd;
 }
