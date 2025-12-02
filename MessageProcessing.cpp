@@ -7,11 +7,10 @@ MessageProcessing::MessageProcessing(MultiplexingSocket* multiplexSocket) {
 	incomingClients = new std::deque<MultiplexingSocket::internetMessage>;
 	poolTimerOff = new std::deque<dateVisit>;
 	poolAddressClient = new std::map<long long, std::list<addressClient>>;
-
-	startProcessing();
-
 	threadClass->push_back(std::jthread(&MessageProcessing::threadProcessing, this));
 	threadClass->push_back(std::jthread(&MessageProcessing::threadAddressClient, this));
+
+	startProcessing();
 }
 
 MessageProcessing::~MessageProcessing() {
