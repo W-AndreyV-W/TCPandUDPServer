@@ -16,18 +16,6 @@
 #include <sys/epoll.h>
 #include <netinet/in.h>
 
-enum connectionProtocol {
-
-	ip,
-	Unix,
-};
-
-enum portProtocol {
-
-	TCP,
-	UDP,
-};
-
 class MultiplexingSocket {
 
 public:
@@ -40,9 +28,19 @@ public:
 	MultiplexingSocket& operator=(const MultiplexingSocket&) = default;
 	MultiplexingSocket& operator=(MultiplexingSocket&&) = default;
 
+	enum connectionProtocol {
 
+		ip,
+		Unix,
+	};
 
-	struct internetMessage 	{
+	enum portProtocol {
+
+		TCP,
+		UDP,
+	};
+
+	struct internetMessage {
 
 	public:
 
@@ -50,11 +48,11 @@ public:
 		internetMessage(const internetMessage& other);
 		internetMessage(internetMessage&& other);
 		~internetMessage();
-				
+
 		internetMessage& operator=(internetMessage& other);
 		internetMessage& operator=(const internetMessage& other);
 		internetMessage& operator=(internetMessage&& other);
-		
+
 		int port = 0;
 		int socket = 0;
 		size_t  messageSize = 0;
@@ -73,15 +71,15 @@ public:
 
 		std::string* message = nullptr;
 	};
-
-	bool setPort(int portNumber, connectionProtocol protocol = ip, portProtocol portProt = TCP, int connections = 50);
+	
+	bool setPort(int portNumber, connectionProtocol protocol = ip, int connections = 50);
 	void deletePort(int portNumber);
-	void deleteSocketTCP(int portNumber, int socketNumber);
+	void deleteSocket(int portNumber, int socketNumber);
 	int checkingIncomingMessages(bool blockingThread = false);
 	internetMessage getIncomingMessage();
 	void setOutgoingMessage(internetMessage& outgoingMessage);
 
-private:
+protected:
 
 	bool threadOperation = true;
 	int messageConnector = 0;
@@ -98,25 +96,10 @@ private:
 	std::mutex mutexEnd;
 	std::condition_variable messagesThread;
 
-
-	bool openPortTCP(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections);
-	bool openPortUDP(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections);
-	bool connectSocket(int portNumber, connectionProtocol protocol, portProtocol portProt, int connections, int listener);
-	void newSocketAddress(int portNumber, connectionProtocol protocol);
-	void threadSocketTCP();	 
-	void deleteSocketPortTCP(std::map<int, internetMessage>* plThrdSckt, const internetMessage* incomingMessage, bool* scktOn, int scktDscrptr);
-	void copyingOutgoingMessagesPortTCP(std::map<int, std::deque<internetMessage>>* mssgBffr, const internetMessage* incomingMessage);
-	bool newSocketPoetTCP(std::map<int, internetMessage>* plThrdSckt, epoll_event* evntSckts, const internetMessage* incomingMessage, int scktDscrptr);
-	void receivingMessagePortTCP(std::map<int, internetMessage>* plThrdSckt, std::deque<internetMessage>* incmngDtThrd, epoll_event* evnts, char* chrBf);
-	void saveReceivingMessagePortTCP(std::map<int, internetMessage>::iterator plThrdSckt, std::deque<internetMessage>* incmngDtThrd);
-	void sendingMessagePortTCP(std::map<int, std::deque<internetMessage>>* mssgBffr, epoll_event* evnts, int MaxSizeMessage);
-	void copyingIncomingMessages(std::deque<internetMessage>* incmngDtThrd);
-	void threadSocketUDP();
-	void deletePortUDP(const internetMessage* incomingMessage, bool* scktOn);
-	void copyingOutgoingMessagesPortUDP(std::deque<internetMessage>* mssgBffr, const internetMessage* incomingMessage);
-	void receivingMessagePortUDP(internetMessage* nwMssg, const internetMessage* incomingMessage, std::deque<internetMessage>* incmngDtThrd, char* chrBf);
-	void saveReceivingMessagePortUDP(internetMessage* nwMssg, std::deque<internetMessage>* incmngDtThrd);
-	void sendingMessagePortUDP(std::deque<internetMessage>* mssgBffr, int MaxSizeMessage);
+	virtual bool openPort(int portNumber, connectionProtocol protocol, int connections);
 	void blockingMessageProcessing();
 	bool endThread();
+
+private:
+
 };

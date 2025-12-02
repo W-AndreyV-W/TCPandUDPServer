@@ -1,16 +1,12 @@
 #include "MessageProcessing.h"
 
-MessageProcessing::MessageProcessing(MultiplexingSocket* multiplexSocket) {
+MessageProcessing::MessageProcessing() {
 
-	multiplexingSocket = multiplexSocket;
-
-	incomingClients = new std::deque<MultiplexingSocket::internetMessage>;
+	incomingClients = new std::deque<addressClient>;
 	poolTimerOff = new std::deque<dateVisit>;
 	poolAddressClient = new std::map<long long, std::list<addressClient>>;
-
-	startProcessing();
-
-	threadClass->push_back(std::jthread(&MessageProcessing::threadProcessing, this));
+	multiplexingSocket = new std::deque<MultiplexingSocket*>;
+	threadClass = new std::deque<std::jthread>;
 	threadClass->push_back(std::jthread(&MessageProcessing::threadAddressClient, this));
 }
 
@@ -25,6 +21,15 @@ MessageProcessing::~MessageProcessing() {
 		thrdClss.join();
 	}
 
+	for (auto& mltplxngSckt : *multiplexingSocket) {
+
+		if (mltplxngSckt != nullptr) {
+
+			delete mltplxngSckt;
+		}
+	}
+
+	delete multiplexingSocket;
 	delete incomingClients;
 	delete poolTimerOff;
 	delete poolAddressClient;		 
@@ -38,6 +43,16 @@ MessageProcessing::addressClient::addressClient(MultiplexingSocket::internetMess
 	address = add.address;
 	protocol = add.protocol;
 	dateVisit = add.dateMessage;
+}
+
+MessageProcessing::addressClient::addressClient(const addressClient& other) {
+
+	port = other.port;
+	socket = other.socket;
+	address = other.address;
+	protocol = other.protocol;
+	dateVisit = other.dateVisit;
+	multiplexingSocket = other.multiplexingSocket;
 }
 
 bool MessageProcessing::addressClient::operator==(MultiplexingSocket::internetMessage& other) {
@@ -101,7 +116,7 @@ int MessageProcessing::numberClient() {
 	return numClnt;
 }
 
-void MessageProcessing::deleteClient(MultiplexingSocket::internetMessage delClient) {
+void MessageProcessing::deleteClient(MultiplexingSocket* mltplxngSckt, MultiplexingSocket::internetMessage delClient) {
 
 	long long hashAddress = std::hash<std::string_view>{}(delClient.address.sa_data);
 	mutexAddressClient.lock();
@@ -119,22 +134,25 @@ void MessageProcessing::deleteClient(MultiplexingSocket::internetMessage delClie
 
 	mutexAddressClient.unlock();
 
-	if (delClient.protocol == TCP) {
+	if (delClient.protocol == MultiplexingSocket::TCP) {
 
-		multiplexingSocket->deleteSocketTCP(delClient.port, delClient.socket);
+		mltplxngSckt->deleteSocket(delClient.port, delClient.socket);
 	}
 }
 
 void MessageProcessing::threadProcessing() {
 
 	bool threadOn = true;
+	mutexMultiplexingSocket.lock();
+	MultiplexingSocket* mltplxngSckt = multiplexingSocket->back();
+	mutexMultiplexingSocket.unlock();
 
-	while (threadOn) {
+	while (threadOn && mltplxngSckt != nullptr) {
 
-		multiplexingSocket->checkingIncomingMessages(true);
-		MultiplexingSocket::internetMessage intrntMsag = std::move(multiplexingSocket->getIncomingMessage());
+		mltplxngSckt->checkingIncomingMessages(true);
+		MultiplexingSocket::internetMessage intrntMsag = std::move(mltplxngSckt->getIncomingMessage());
 		std::string* intMes = intrntMsag.getMessage();
-		addingClient(&intrntMsag);
+		addingClient(mltplxngSckt, &intrntMsag);
 
 		if (intMes->at(0) == '/') {
 
@@ -142,19 +160,19 @@ void MessageProcessing::threadProcessing() {
 
 				preparingDate(intMes);
 				intrntMsag.setMessage(intMes);
-				multiplexingSocket->setOutgoingMessage(intrntMsag);
+				mltplxngSckt->setOutgoingMessage(intrntMsag);
 			}
 			else if (intMes->find_first_of("/stats") != std::string::npos) {
 
 				preparationNumberClients(intMes);
 				intrntMsag.setMessage(intMes);
-				multiplexingSocket->setOutgoingMessage(intrntMsag);
+				mltplxngSckt->setOutgoingMessage(intrntMsag);
 			}
 			else if (intMes->find_first_of("/shutdown") != std::string::npos) {
 
-				deleteClient(intrntMsag);
+				deleteClient(mltplxngSckt, intrntMsag);
 			}
-			else if (intMes->find_first_of("/close") != std::string::npos && intrntMsag.conProtocol == Unix) {
+			else if (intMes->find_first_of("/close") != std::string::npos && intrntMsag.conProtocol == mltplxngSckt->Unix) {
 
 				threadOn = false;
 				mutexEnd.lock();
@@ -170,15 +188,18 @@ void MessageProcessing::threadProcessing() {
 		else {
 
 			intrntMsag.setMessage(intMes);
-			multiplexingSocket->setOutgoingMessage(intrntMsag);
+			mltplxngSckt->setOutgoingMessage(intrntMsag);
 		}
+
+		threadOn = endThread();
 	}
 }
 
-void MessageProcessing::addingClient(MultiplexingSocket::internetMessage* intrntMsag) {
+void MessageProcessing::addingClient(MultiplexingSocket* mltplxngSckt, MultiplexingSocket::internetMessage* intrntMsag) {
 
 	mutexAddressClient.lock();
 	incomingClients->push_back(*intrntMsag);
+	incomingClients->back().multiplexingSocket = mltplxngSckt;
 	mutexAddressClient.unlock();
 	messagesAddress.notify_all();
 }
@@ -209,7 +230,7 @@ void MessageProcessing::threadAddressClient() {
 
 	bool threadOn = true;
 	double TIMEOUT_ADDRESS = 300;
-	std::deque<MultiplexingSocket::internetMessage>* incmngClnts = new std::deque<MultiplexingSocket::internetMessage>;
+	std::deque<addressClient>* incmngClnts = new std::deque<addressClient>;
 
 	while (threadOn) {
 
@@ -222,7 +243,7 @@ void MessageProcessing::threadAddressClient() {
 	delete incmngClnts;
 }
 
-void MessageProcessing::addingClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+void MessageProcessing::addingClientAddress(std::deque<addressClient>* incmngClnts) {
 
 	mutexAddressClient.lock();
 
@@ -243,7 +264,7 @@ void MessageProcessing::addingClientAddress(std::deque<MultiplexingSocket::inter
 	}
 }
 
-void MessageProcessing::searchClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+void MessageProcessing::searchClientAddress(std::deque<addressClient>* incmngClnts) {
 
 	while (!incmngClnts->empty()) {
 
@@ -279,24 +300,24 @@ void MessageProcessing::searchClientAddress(std::deque<MultiplexingSocket::inter
 	}
 }
 
-void MessageProcessing::updatingVisitTime(std::deque<MultiplexingSocket::internetMessage>* incmngClnts, addressClient* plAdd) {
+void MessageProcessing::updatingVisitTime(std::deque<addressClient>* incmngClnts, addressClient* plAdd) {
 
-	plAdd->dateVisit = incmngClnts->front().dateMessage;
+	plAdd->dateVisit = incmngClnts->front().dateVisit;
 }
 
-void MessageProcessing::addingClient(std::map<long long, std::list<addressClient>>::iterator& plAddrssClnt, std::deque<MultiplexingSocket::internetMessage>* incmngClnts) {
+void MessageProcessing::addingClient(std::map<long long, std::list<addressClient>>::iterator& plAddrssClnt, std::deque<addressClient>* incmngClnts) {
 
 	plAddrssClnt->second.emplace_back(addressClient(incmngClnts->front()));
-	poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddrssClnt, --plAddrssClnt->second.end()));
+	poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateVisit, plAddrssClnt, --plAddrssClnt->second.end()));
 }
 
-void MessageProcessing::addingNewClientAddress(std::deque<MultiplexingSocket::internetMessage>* incmngClnts, long long hashAddress) {
+void MessageProcessing::addingNewClientAddress(std::deque<addressClient>* incmngClnts, long long hashAddress) {
 
 	poolAddressClient->emplace(hashAddress, std::list<addressClient>{incmngClnts->front()});
 
 	if (auto plAddClnt = poolAddressClient->find(hashAddress); plAddClnt != poolAddressClient->end()) {
 
-		poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateMessage, plAddClnt, plAddClnt->second.begin()));
+		poolTimerOff->emplace_back(dateVisit(incmngClnts->front().dateVisit, plAddClnt, plAddClnt->second.begin()));
 	}
 }
 
@@ -340,21 +361,26 @@ void MessageProcessing::checkingTimeLastSession(double timeoutAddress) {
 
 void MessageProcessing::deleteAddress(std::list<addressClient>::iterator& iterTO) {
 	
-	if (iterTO->protocol == TCP) {
+	if (iterTO->protocol == MultiplexingSocket::TCP) {
 
-		multiplexingSocket->deleteSocketTCP(iterTO->port, iterTO->socket);
+		iterTO->multiplexingSocket->deleteSocket(iterTO->port, iterTO->socket);
 	}
 
 	poolTimerOff->front().iterMapAddress->second.erase(iterTO);
 }
 
+void MessageProcessing::newThread(MultiplexingSocket* newMultiplexingSocket) {
+
+	mutexMultiplexingSocket.lock();
+	multiplexingSocket->push_back(newMultiplexingSocket);
+	mutexMultiplexingSocket.unlock();
+	newMultiplexingSocket = nullptr;
+	threadClass->push_back(std::jthread(&MessageProcessing::threadProcessing, this));
+}
+
 void MessageProcessing::startProcessing() {
 
 	bool threadOn = true;
-
-	multiplexingSocket->setPort(8088);
-	multiplexingSocket->setPort(8089, ip, UDP);
-	multiplexingSocket->setPort(8090, Unix);
 
 	while (threadOn) {
 	
